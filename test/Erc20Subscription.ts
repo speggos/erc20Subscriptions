@@ -82,7 +82,7 @@ describe("Erc20Subscription", () => {
     });
   });
 
-  describe("Creates Subscriptions", () => {
+  describe("Create Subscriptions", () => {
     it("Has zero subscriptions on initiation", async () => {
       expect(await erc20Subscription.numberOfSubscriptions()).to.be.equal(0);
       expect (await erc20Subscription.subscriptions.length).to.be.equal(0);
@@ -118,7 +118,7 @@ describe("Erc20Subscription", () => {
     });
   });
 
-  describe("Allows payments to be pulled", async () => {
+  describe("Process Payments", async () => {
     beforeEach(async () => {
       await erc20Subscription.connect(payer).createSubscription(sub1.payee, sub1.token, sub1.frequency, sub1.amount);
       await erc20Subscription.connect(alice).createSubscription(sub2.payee, sub2.token, sub2.frequency, sub2.amount);
@@ -127,7 +127,7 @@ describe("Erc20Subscription", () => {
     it("Doesn't allow nonexisting subscriptions, wrong payees, or too early", async () => {
       await expect(erc20Subscription.connect(alice).processPayment(1)).to.revertedWith("Only payee can pull payments");
       await expect(erc20Subscription.connect(payee).processPayment(1)).to.revertedWith("Next payment not yet available");
-      await expect(erc20Subscription.connect(payee).processPayment(10)).to.revertedWith("Subscription not initialized");
+      await expect(erc20Subscription.connect(payee).processPayment(10)).to.revertedWith("Subscription doesn't exist");
     });
 
     it("Allows single payments to be pulled", async () => {
@@ -176,7 +176,7 @@ describe("Erc20Subscription", () => {
       expect (await token.balanceOf(sub1.payee)).to.be.equal(sub1.amount.mul(7));
     });
 
-    it.only("Allows multiple subscriptions to be charged", async () => {
+    it("Allows multiple subscriptions to be charged", async () => {
       timeTravel(SECONDS_IN_MONTH * 3);
       await erc20Subscription.connect(payee).processPayment(1);
       expect (await token.balanceOf(sub1.payer)).to.be.equal(INITIAL_BALANCE.sub(sub1.amount.mul(4)));
@@ -188,6 +188,40 @@ describe("Erc20Subscription", () => {
       expect (await token.balanceOf(sub2.payer)).to.be.equal(INITIAL_BALANCE.sub(sub2.amount.mul(2)));
       expect (await token.balanceOf(sub2.payee)).to.be.equal(sub2.amount.mul(2));
     });
+
+    it("Emits an event", async () => {
+      timeTravel(SECONDS_IN_MONTH);
+      await expect(erc20Subscription.connect(payee).processPayment(1)).to.emit(erc20Subscription, "Payment");
+    });
+
+    describe("Cancel Subscriptions", async() => {
+      beforeEach(async () => {
+        await erc20Subscription.connect(payer).createSubscription(sub1.payee, sub1.token, sub1.frequency, sub1.amount);
+        await erc20Subscription.connect(alice).createSubscription(sub2.payee, sub2.token, sub2.frequency, sub2.amount);
+      timeTravel(SECONDS_IN_MONTH);
+      });
+
+      it("Allows subscripitions to be cancelled", async() => {
+        await erc20Subscription.connect(payer).cancelSubscription(1);
+        await expect(erc20Subscription.connect(payee).processPayment(1)).to.revertedWith("Subscription cancelled");
+        await erc20Subscription.connect(alice).cancelSubscription(2);
+        timeTravel(SECONDS_IN_YEAR);
+        await expect(erc20Subscription.connect(bob).processPayment(2)).to.revertedWith("Subscription cancelled");
+      });
+
+      it("Does not allow non-payers to cancel a subscription", async() => {
+        await expect(erc20Subscription.connect(payee).cancelSubscription(1)).to.revertedWith("Only subscriber can cancel");
+        await expect(erc20Subscription.connect(alice).cancelSubscription(1)).to.revertedWith("Only subscriber can cancel");
+        await expect(erc20Subscription.connect(bob).cancelSubscription(1)).to.revertedWith("Only subscriber can cancel");
+        await expect(erc20Subscription.connect(payer).cancelSubscription(5)).to.revertedWith("Subscription doesn't exist");
+        await expect(erc20Subscription.connect(bob).cancelSubscription(1)).to.revertedWith("Only subscriber can cancel");
+      });
+
+
+      it("Emits an event", async () => {
+        await expect(erc20Subscription.connect(payer).cancelSubscription(1)).to.emit(erc20Subscription, "SubscriptionCancelled");
+      });
+    })
 
   })
 });
